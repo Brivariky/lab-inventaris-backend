@@ -1,93 +1,320 @@
+require('dotenv').config();
 const express = require('express');
-const fs = require('fs');
 const cors = require('cors');
-const app = express();
-const PORT = 4000;
+const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 
+const app = express();
+const port = process.env.PORT || 3000;
+
+// Database setup
+const dbPath = path.join(__dirname, 'inventory.db');
+const db = new sqlite3.Database(dbPath, (err) => {
+  if (err) {
+    console.error('Error opening database:', err.message);
+  } else {
+    console.log('Connected to SQLite database');
+  }
+});
+
+// Middleware
 app.use(cors());
 app.use(express.json());
 
-const DATA_FILE = './data.json';
+// Helper function to run database queries
+const runQuery = (sql, params = []) => {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(rows);
+      }
+    });
+  });
+};
 
-// Helper: baca/tulis data
-function readData() {
-  if (!fs.existsSync(DATA_FILE)) return { items: [], serialNumbers: [] };
-  return JSON.parse(fs.readFileSync(DATA_FILE));
-}
-function writeData(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-}
+const runQuerySingle = (sql, params = []) => {
+  return new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(row);
+      }
+    });
+  });
+};
 
-// GET semua barang
-app.get('/items', (req, res) => {
-  const data = readData();
-  res.json(data.items);
+const runQueryInsert = (sql, params = []) => {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function(err) {
+      if (err) {
+        reject(err);
+      } else {
+        resolve({ id: this.lastID, changes: this.changes });
+      }
+    });
+  });
+};
+
+// --- INVENTORY ITEMS CRUD ---
+
+// List all items
+app.get('/items', async (req, res) => {
+  try {
+    const items = await runQuery('SELECT * FROM items ORDER BY created_at DESC');
+    res.json(items);
+  } catch (err) {
+    console.error('Error fetching items:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// POST tambah barang
-app.post('/items', (req, res) => {
-  const data = readData();
-  const newItem = { ...req.body, id: Date.now().toString() };
-  data.items.push(newItem);
-  writeData(data);
-  res.status(201).json(newItem);
+// Get single item
+app.get('/items/:id', async (req, res) => {
+  try {
+    const item = await runQuerySingle('SELECT * FROM items WHERE id = ?', [req.params.id]);
+    if (!item) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+    res.json(item);
+  } catch (err) {
+    console.error('Error fetching item:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// GET semua serial numbers
-app.get('/serial-numbers', (req, res) => {
-  const data = readData();
-  res.json(data.serialNumbers || []);
+// Add new item
+app.post('/items', async (req, res) => {
+  const { name, information, location } = req.body;
+  
+  if (!name || !location) {
+    return res.status(400).json({ error: 'Name and location are required' });
+  }
+
+  try {
+    const id = uuidv4();
+    const result = await runQueryInsert(
+      'INSERT INTO items (id, name, information, location) VALUES (?, ?, ?, ?)',
+      [id, name, information, location]
+    );
+    
+    const newItem = await runQuerySingle('SELECT * FROM items WHERE id = ?', [id]);
+    res.status(201).json(newItem);
+  } catch (err) {
+    console.error('Error creating item:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// POST tambah serial number
-app.post('/serial-numbers', (req, res) => {
-  const data = readData();
-  const newSerial = { ...req.body, id: Date.now().toString() };
-  data.serialNumbers.push(newSerial);
-  writeData(data);
-  res.status(201).json(newSerial);
+// Update item
+app.put('/items/:id', async (req, res) => {
+  const { name, information, location } = req.body;
+  
+  if (!name || !location) {
+    return res.status(400).json({ error: 'Name and location are required' });
+  }
+
+  try {
+    const result = await runQueryInsert(
+      'UPDATE items SET name = ?, information = ?, location = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [name, information, location, req.params.id]
+    );
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+    
+    const updatedItem = await runQuerySingle('SELECT * FROM items WHERE id = ?', [req.params.id]);
+    res.json(updatedItem);
+  } catch (err) {
+    console.error('Error updating item:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// PUT update serial number
-app.put('/serial-numbers/:id', (req, res) => {
-  const data = readData();
-  const idx = data.serialNumbers.findIndex(s => s.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Serial number not found' });
-  data.serialNumbers[idx] = { ...data.serialNumbers[idx], ...req.body };
-  writeData(data);
-  res.json(data.serialNumbers[idx]);
+// Delete item
+app.delete('/items/:id', async (req, res) => {
+  try {
+    // First delete related inventory codes
+    await runQueryInsert('DELETE FROM inventory_codes WHERE item_id = ?', [req.params.id]);
+    
+    // Then delete the item
+    const result = await runQueryInsert('DELETE FROM items WHERE id = ?', [req.params.id]);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+    
+    res.json({ message: 'Item deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting item:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// DELETE serial number
-app.delete('/serial-numbers/:id', (req, res) => {
-  const data = readData();
-  const idx = data.serialNumbers.findIndex(s => s.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Serial number not found' });
-  const deleted = data.serialNumbers.splice(idx, 1);
-  writeData(data);
-  res.json(deleted[0]);
+// --- SERIAL NUMBERS CRUD ---
+
+// List all serial numbers
+app.get('/serial-numbers', async (req, res) => {
+  try {
+    const serialNumbers = await runQuery(`
+      SELECT ic.*, i.name as item_name, i.location 
+      FROM inventory_codes ic 
+      LEFT JOIN items i ON ic.item_id = i.id 
+      ORDER BY ic.date_added DESC
+    `);
+    res.json(serialNumbers);
+  } catch (err) {
+    console.error('Error fetching serial numbers:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// PUT update barang
-app.put('/items/:id', (req, res) => {
-  const data = readData();
-  const idx = data.items.findIndex(i => i.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Item not found' });
-  data.items[idx] = { ...data.items[idx], ...req.body };
-  writeData(data);
-  res.json(data.items[idx]);
+// Get serial number by id
+app.get('/serial-numbers/:id', async (req, res) => {
+  try {
+    const serialNumber = await runQuerySingle(`
+      SELECT ic.*, i.name as item_name, i.location 
+      FROM inventory_codes ic 
+      LEFT JOIN items i ON ic.item_id = i.id 
+      WHERE ic.id = ?
+    `, [req.params.id]);
+    
+    if (!serialNumber) {
+      return res.status(404).json({ error: 'Serial number not found' });
+    }
+    
+    res.json(serialNumber);
+  } catch (err) {
+    console.error('Error fetching serial number:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// DELETE barang
-app.delete('/items/:id', (req, res) => {
-  const data = readData();
-  const idx = data.items.findIndex(i => i.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Item not found' });
-  const deleted = data.items.splice(idx, 1);
-  // Hapus juga serialNumbers yang terkait item ini
-  data.serialNumbers = data.serialNumbers.filter(s => s.itemId !== req.params.id);
-  writeData(data);
-  res.json(deleted[0]);
+// Add serial number
+app.post('/serial-numbers', async (req, res) => {
+  const { itemId, serialNumber, specs, status } = req.body;
+  
+  if (!itemId) {
+    return res.status(400).json({ error: 'Item ID is required' });
+  }
+
+  try {
+    // Check if item exists
+    const item = await runQuerySingle('SELECT * FROM items WHERE id = ?', [itemId]);
+    if (!item) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    const id = uuidv4();
+    const result = await runQueryInsert(
+      'INSERT INTO inventory_codes (id, item_id, kode_inventaris, spesifikasi, status) VALUES (?, ?, ?, ?, ?)',
+      [id, itemId, serialNumber || '', specs || '', status || 'good']
+    );
+    
+    const newSerialNumber = await runQuerySingle(`
+      SELECT ic.*, i.name as item_name, i.location 
+      FROM inventory_codes ic 
+      LEFT JOIN items i ON ic.item_id = i.id 
+      WHERE ic.id = ?
+    `, [id]);
+    
+    res.status(201).json(newSerialNumber);
+  } catch (err) {
+    console.error('Error creating serial number:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.listen(PORT, () => console.log(`API running on http://localhost:${PORT}`));
+// Update serial number
+app.put('/serial-numbers/:id', async (req, res) => {
+  const { serialNumber, specs, status } = req.body;
+
+  try {
+    const result = await runQueryInsert(
+      'UPDATE inventory_codes SET kode_inventaris = ?, spesifikasi = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [serialNumber || '', specs || '', status || 'good', req.params.id]
+    );
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Serial number not found' });
+    }
+    
+    const updatedSerialNumber = await runQuerySingle(`
+      SELECT ic.*, i.name as item_name, i.location 
+      FROM inventory_codes ic 
+      LEFT JOIN items i ON ic.item_id = i.id 
+      WHERE ic.id = ?
+    `, [req.params.id]);
+    
+    res.json(updatedSerialNumber);
+  } catch (err) {
+    console.error('Error updating serial number:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete serial number
+app.delete('/serial-numbers/:id', async (req, res) => {
+  try {
+    const result = await runQueryInsert('DELETE FROM inventory_codes WHERE id = ?', [req.params.id]);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Serial number not found' });
+    }
+    
+    res.json({ message: 'Serial number deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting serial number:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get items with their serial numbers count
+app.get('/items-with-counts', async (req, res) => {
+  try {
+    const items = await runQuery(`
+      SELECT i.*, COUNT(ic.id) as serial_count 
+      FROM items i 
+      LEFT JOIN inventory_codes ic ON i.id = ic.item_id 
+      GROUP BY i.id 
+      ORDER BY i.created_at DESC
+    `);
+    res.json(items);
+  } catch (err) {
+    console.error('Error fetching items with counts:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    database: 'SQLite',
+    version: '1.0.0'
+  });
+});
+
+// Start server
+app.listen(port, () => {
+  console.log(`Server running on http://localhost:${port}`);
+  console.log(`Health check: http://localhost:${port}/health`);
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('Shutting down server...');
+  db.close((err) => {
+    if (err) {
+      console.error('Error closing database:', err.message);
+    } else {
+      console.log('Database connection closed.');
+    }
+    process.exit(0);
+  });
+});
