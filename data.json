@@ -1,0 +1,153 @@
+{
+  "items": [
+    {
+      "name": "uafnkjdsnfoaw",
+      "information": "sdlkfjwoeif",
+      "location": "Ruang Laboran",
+      "id": "1750388065193"
+    },
+    {
+      "name": "aosidfjo",
+      "information": "sdfokwpef",
+      "location": "Ruang Laboran",
+      "id": "1750388072607"
+    },
+    {
+      "name": "asdasd",
+      "information": "asdasd",
+      "location": "Ruang Laboran",
+      "id": "1750388083917"
+    },
+    {
+      "name": "asas",
+      "information": "dsfwef",
+      "location": "Ruang Laboran",
+      "id": "1750388435770"
+    },
+    {
+      "name": "PICI",
+      "information": "AIO",
+      "location": "Ruang Laboran",
+      "id": "1750388757768"
+    },
+    {
+      "name": "asd",
+      "information": "asdasd",
+      "location": "Ruang Laboran",
+      "id": "1750398419930"
+    }
+  ],
+  "serialNumbers": [
+    {
+      "serialNumber": "asd",
+      "specs": "asdasd",
+      "status": "good",
+      "itemId": "1750388065193",
+      "id": "1750388740252"
+    },
+    {
+      "itemId": "1750388757768",
+      "serialNumber": "*17823468273*",
+      "specs": "CPU\nGPU\nRAM\nMOBILE",
+      "status": "good",
+      "dateAdded": "2025-06-20T03:05:57.785Z",
+      "id": "1750388757806"
+    },
+    {
+      "itemId": "1750388757768",
+      "serialNumber": "",
+      "specs": "",
+      "status": "good",
+      "dateAdded": "2025-06-20T03:05:57.813Z",
+      "id": "1750388757855"
+    },
+    {
+      "itemId": "1750388757768",
+      "serialNumber": "",
+      "specs": "",
+      "status": "good",
+      "dateAdded": "2025-06-20T03:05:57.862Z",
+      "id": "1750388757894"
+    },
+    {
+      "itemId": "1750388757768",
+      "serialNumber": "",
+      "specs": "",
+      "status": "good",
+      "dateAdded": "2025-06-20T03:05:57.901Z",
+      "id": "1750388757929"
+    },
+    {
+      "itemId": "1750388757768",
+      "serialNumber": "",
+      "specs": "",
+      "status": "good",
+      "dateAdded": "2025-06-20T03:05:57.936Z",
+      "id": "1750388757963"
+    },
+    {
+      "itemId": "1750388757768",
+      "serialNumber": "",
+      "specs": "",
+      "status": "good",
+      "dateAdded": "2025-06-20T03:05:57.969Z",
+      "id": "1750388757997"
+    },
+    {
+      "itemId": "1750388757768",
+      "serialNumber": "",
+      "specs": "",
+      "status": "good",
+      "dateAdded": "2025-06-20T03:05:58.003Z",
+      "id": "1750388758033"
+    },
+    {
+      "itemId": "1750388757768",
+      "serialNumber": "",
+      "specs": "",
+      "status": "good",
+      "dateAdded": "2025-06-20T03:05:58.040Z",
+      "id": "1750388758067"
+    },
+    {
+      "itemId": "1750388757768",
+      "serialNumber": "",
+      "specs": "",
+      "status": "good",
+      "dateAdded": "2025-06-20T03:05:58.073Z",
+      "id": "1750388758101"
+    },
+    {
+      "itemId": "1750388757768",
+      "serialNumber": "",
+      "specs": "",
+      "status": "good",
+      "dateAdded": "2025-06-20T03:05:58.107Z",
+      "id": "1750388758136"
+    },
+    {
+      "itemId": "1750388757768",
+      "serialNumber": "",
+      "specs": "",
+      "status": "good",
+      "dateAdded": "2025-06-20T03:05:58.143Z",
+      "id": "1750388758171"
+    },
+    {
+      "itemId": "1750388757768",
+      "serialNumber": "",
+      "specs": "",
+      "status": "good",
+      "dateAdded": "2025-06-20T03:05:58.178Z",
+      "id": "1750388758206"
+    },
+    {
+      "itemId": "1750398419930",
+      "serialNumber": "asdasd",
+      "specs": "asd",
+      "status": "good",
+      "dateAdded": "2025-06-20T05:46:59.938Z",
+      "id": "1750398419947"
+    }
+  ]
+}
