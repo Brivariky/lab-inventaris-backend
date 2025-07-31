@@ -498,21 +498,33 @@ app.get('/serial-numbers/:id', async (req, res) => {
 });
 
 // Get serial numbers by item ID
+// Get serial numbers by item ID (frontend shape)
 app.get('/items/:itemId/serial-numbers', async (req, res) => {
-  try {
-    const serialNumbers = await runQuery(`
-      SELECT *
-      FROM inventory_codes
-      WHERE item_id = $1
-      ORDER BY date_added DESC
-    `, [req.params.itemId]);
+  const { itemId } = req.params;
 
-    res.json(serialNumbers);
-  } catch (err) {
-    console.error('Error fetching serial numbers by item ID:', err);
-    res.status(500).json({ error: err.message });
+  try {
+    const result = await pool.query(
+      `SELECT id, kode_inventaris, spesifikasi, status
+       FROM inventory_codes
+       WHERE item_id = $1
+       ORDER BY date_added ASC`,
+      [itemId]
+    );
+
+    const serials = result.rows.map((row) => ({
+      id: row.id,
+      serialNumber: row.kode_inventaris,  // ✅ maps to frontend "serialNumber"
+      specs: row.spesifikasi,             // ✅ maps to frontend "specs"
+      status: row.status
+    }));
+
+    res.json(serials);
+  } catch (error) {
+    console.error('Error fetching serial numbers:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
+
 
 
 // Add serial number
