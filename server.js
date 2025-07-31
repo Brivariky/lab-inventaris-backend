@@ -525,6 +525,30 @@ app.get('/items/:itemId/serial-numbers', async (req, res) => {
   }
 });
 
+// Get total inventory count for a given location
+app.get('/inventory-count/by-location', async (req, res) => {
+  const { location } = req.query;
+
+  if (!location) {
+    return res.status(400).json({ error: 'Missing location parameter' });
+  }
+
+  try {
+    const result = await runQuerySingle(`
+      SELECT COUNT(ic.id) as total
+      FROM items i
+      LEFT JOIN inventory_codes ic ON ic.item_id = i.id
+      WHERE i.location = $1
+    `, [location]);
+
+    res.json({ total: parseInt(result.total, 10) });
+  } catch (err) {
+    console.error('Error fetching inventory count by location:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
 
 
 // Add serial number
