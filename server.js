@@ -216,7 +216,9 @@ app.get('/items', async (req, res) => {
     const items = await runQuery(`
       SELECT 
         i.*, 
-        COUNT(ic.id) AS jumlah
+        COUNT(ic.id) AS jumlah,
+        COUNT(CASE WHEN ic.status = 'good' THEN 1 END) AS baik,
+        COUNT(CASE WHEN ic.status = 'broken' THEN 1 END) AS rusak
       FROM items i
       LEFT JOIN inventory_codes ic ON ic.item_id = i.id
       GROUP BY i.id
@@ -224,10 +226,11 @@ app.get('/items', async (req, res) => {
     `);
     res.json(items);
   } catch (err) {
-    console.error('Error fetching items with jumlah:', err);
+    console.error('Error fetching items with counts:', err);
     res.status(500).json({ error: err.message });
   }
 });
+
 
 
 // Get single item
