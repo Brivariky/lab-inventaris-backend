@@ -99,7 +99,10 @@ async function importSampleData() {
 }
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: ['https://silabti.vercel.app/'],
+  credentials: true
+}));
 app.use(express.json());
 
 // Helper function to run database queries
@@ -149,7 +152,7 @@ app.get('/items', async (req, res) => {
 // Get single item
 app.get('/items/:id', async (req, res) => {
   try {
-    const item = await runQuerySingle('SELECT * FROM items WHERE id = ?', [req.params.id]);
+    const item = await runQuerySingle('SELECT * FROM items WHERE id = $1', [req.params.id]);
     if (!item) {
       return res.status(404).json({ error: 'Item not found' });
     }
@@ -171,11 +174,11 @@ app.post('/items', async (req, res) => {
   try {
     const id = uuidv4();
     const result = await runQueryInsert(
-      'INSERT INTO items (id, name, information, location) VALUES (?, ?, ?, ?)',
+      'INSERT INTO items (id, name, information, location) VALUES ($1, $2, $3, $4)',
       [id, name, information, location]
     );
     
-    const newItem = await runQuerySingle('SELECT * FROM items WHERE id = ?', [id]);
+    const newItem = await runQuerySingle('SELECT * FROM items WHERE id = $1', [id]);
     res.status(201).json(newItem);
   } catch (err) {
     console.error('Error creating item:', err);
@@ -193,7 +196,7 @@ app.put('/items/:id', async (req, res) => {
 
   try {
     const result = await runQueryInsert(
-      'UPDATE items SET name = ?, information = ?, location = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      'UPDATE items SET name = $1, information = $2, location = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4',
       [name, information, location, req.params.id]
     );
     
@@ -201,7 +204,7 @@ app.put('/items/:id', async (req, res) => {
       return res.status(404).json({ error: 'Item not found' });
     }
     
-    const updatedItem = await runQuerySingle('SELECT * FROM items WHERE id = ?', [req.params.id]);
+    const updatedItem = await runQuerySingle('SELECT * FROM items WHERE id = $1', [req.params.id]);
     res.json(updatedItem);
   } catch (err) {
     console.error('Error updating item:', err);
@@ -213,10 +216,10 @@ app.put('/items/:id', async (req, res) => {
 app.delete('/items/:id', async (req, res) => {
   try {
     // First delete related inventory codes
-    await runQueryInsert('DELETE FROM inventory_codes WHERE item_id = ?', [req.params.id]);
+    await runQueryInsert('DELETE FROM inventory_codes WHERE item_id = $1', [req.params.id]);
     
     // Then delete the item
-    const result = await runQueryInsert('DELETE FROM items WHERE id = ?', [req.params.id]);
+    const result = await runQueryInsert('DELETE FROM items WHERE id = $1', [req.params.id]);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Item not found' });
@@ -254,7 +257,7 @@ app.get('/serial-numbers/:id', async (req, res) => {
       SELECT ic.*, i.name as item_name, i.location 
       FROM inventory_codes ic 
       LEFT JOIN items i ON ic.item_id = i.id 
-      WHERE ic.id = ?
+      WHERE ic.id = $1
     `, [req.params.id]);
     
     if (!serialNumber) {
@@ -278,14 +281,14 @@ app.post('/serial-numbers', async (req, res) => {
 
   try {
     // Check if item exists
-    const item = await runQuerySingle('SELECT * FROM items WHERE id = ?', [itemId]);
+    const item = await runQuerySingle('SELECT * FROM items WHERE id = $1', [itemId]);
     if (!item) {
       return res.status(404).json({ error: 'Item not found' });
     }
 
     const id = uuidv4();
     const result = await runQueryInsert(
-      'INSERT INTO inventory_codes (id, item_id, kode_inventaris, spesifikasi, status) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO inventory_codes (id, item_id, kode_inventaris, spesifikasi, status) VALUES ($1, $2, $3, $4, $5)',
       [id, itemId, serialNumber || '', specs || '', status || 'good']
     );
     
@@ -293,7 +296,7 @@ app.post('/serial-numbers', async (req, res) => {
       SELECT ic.*, i.name as item_name, i.location 
       FROM inventory_codes ic 
       LEFT JOIN items i ON ic.item_id = i.id 
-      WHERE ic.id = ?
+      WHERE ic.id = $1
     `, [id]);
     
     res.status(201).json(newSerialNumber);
@@ -309,7 +312,7 @@ app.put('/serial-numbers/:id', async (req, res) => {
 
   try {
     const result = await runQueryInsert(
-      'UPDATE inventory_codes SET kode_inventaris = ?, spesifikasi = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      'UPDATE inventory_codes SET kode_inventaris = $1, spesifikasi = $2, status = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4',
       [serialNumber || '', specs || '', status || 'good', req.params.id]
     );
     
@@ -321,7 +324,7 @@ app.put('/serial-numbers/:id', async (req, res) => {
       SELECT ic.*, i.name as item_name, i.location 
       FROM inventory_codes ic 
       LEFT JOIN items i ON ic.item_id = i.id 
-      WHERE ic.id = ?
+      WHERE ic.id = $1
     `, [req.params.id]);
     
     res.json(updatedSerialNumber);
@@ -334,7 +337,7 @@ app.put('/serial-numbers/:id', async (req, res) => {
 // Delete serial number
 app.delete('/serial-numbers/:id', async (req, res) => {
   try {
-    const result = await runQueryInsert('DELETE FROM inventory_codes WHERE id = ?', [req.params.id]);
+    const result = await runQueryInsert('DELETE FROM inventory_codes WHERE id = $1', [req.params.id]);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Serial number not found' });
