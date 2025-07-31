@@ -15,6 +15,21 @@ const pool = new Pool({
   }
 });
 
+// Add error handler for the pool
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle client', err);
+  process.exit(-1);
+});
+
+// Test database connection
+pool.query('SELECT NOW()', (err, res) => {
+  if (err) {
+    console.error('Error connecting to the database:', err);
+  } else {
+    console.log('Database connected successfully at:', res.rows[0].now);
+  }
+});
+
 console.log('Initializing database...');
 
 // Initialize database asynchronously
@@ -321,18 +336,35 @@ app.post('/items', async (req, res) => {
       message: 'Item created successfully'
     });
   } catch (err) {
-    console.error('Detailed error:', err);
+    console.error('Detailed error:', {
+      message: err.message,
+      stack: err.stack,
+      detail: err.detail,
+      hint: err.hint,
+      code: err.code,
+      where: err.where,
+      position: err.position,
+      file: err.file,
+      line: err.line
+    });
+    
     if (client) {
       try {
         await client.query('ROLLBACK');
+        console.log('Transaction rolled back successfully');
       } catch (rollbackErr) {
-        console.error('Error during rollback:', rollbackErr);
+        console.error('Error during rollback:', {
+          message: rollbackErr.message,
+          stack: rollbackErr.stack
+        });
       }
     }
+    
     res.status(500).json({ 
       error: err.message,
       detail: err.detail,
-      hint: err.hint
+      hint: err.hint,
+      code: err.code
     });
   } finally {
     if (client) {
