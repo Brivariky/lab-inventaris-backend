@@ -103,7 +103,31 @@ app.use(cors({
   origin: 'https://silabti.vercel.app',
   credentials: true
 }));
-app.use(express.json());
+
+// Enhanced JSON parsing middleware
+app.use(express.json({
+  verify: (req, res, buf) => {
+    try {
+      JSON.parse(buf);
+    } catch(e) {
+      res.status(400).json({ error: 'Invalid JSON' });
+      throw new Error('Invalid JSON');
+    }
+  }
+}));
+
+// Request logging middleware
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`, {
+    body: req.body,
+    query: req.query,
+    headers: {
+      'content-type': req.headers['content-type'],
+      'content-length': req.headers['content-length']
+    }
+  });
+  next();
+});
 
 // Helper function to run database queries
 const runQuery = async (sql, params = []) => {
@@ -129,13 +153,39 @@ const runQuerySingle = async (sql, params = []) => {
 const runQueryInsert = async (sql, params = []) => {
   const client = await pool.connect();
   try {
+    console.log('Executing query:', {
+      sql,
+      params,
+      timestamp: new Date().toISOString()
+    });
+    
     const result = await client.query(sql, params);
+    
     if (!result) {
+      console.error('Query returned no result');
       throw new Error('Query failed to execute');
     }
-    return { changes: result.rowCount, success: true };
+    
+    console.log('Query result:', {
+      rowCount: result.rowCount,
+      command: result.command,
+      timestamp: new Date().toISOString()
+    });
+    
+    return { 
+      changes: result.rowCount, 
+      success: true,
+      command: result.command
+    };
   } catch (error) {
-    console.error('Database query error:', error);
+    console.error('Database query error:', {
+      error: error.message,
+      detail: error.detail,
+      hint: error.hint,
+      code: error.code,
+      position: error.position,
+      stack: error.stack
+    });
     throw error;
   } finally {
     client.release();
@@ -171,29 +221,49 @@ app.get('/items/:id', async (req, res) => {
 
 // Add new item
 app.post('/items', async (req, res) => {
-  console.log('Received request body:', req.body); // Debug log
-  
-  const { name, information, location, quantity } = req.body;
-  
-  if (!name || !location) {
-    console.log('Validation failed:', { name, location }); // Debug log
-    return res.status(400).json({ error: 'Name and location are required' });
-  }
-
   let client;
+  
   try {
+    console.log('Received request body:', JSON.stringify(req.body, null, 2));
+    
+    // Validate the request body exists
+    if (!req.body) {
+      console.log('No request body received');
+      return res.status(400).json({ error: 'Request body is required' });
+    }
+    
+    const { name, information, location, quantity } = req.body;
+    
+    // Detailed validation logging
+    console.log('Parsed values:', {
+      name: name || 'undefined',
+      information: information || 'undefined',
+      location: location || 'undefined',
+      quantity: quantity || 'undefined'
+    });
+    
+    if (!name || !location) {
+      console.log('Validation failed:', { name, location });
+      return res.status(400).json({ 
+        error: 'Name and location are required',
+        receivedValues: { name, location }
+      });
+    }
+
+    // Connect to database
     client = await pool.connect();
-    console.log('Database connected'); // Debug log
+    console.log('Database connected successfully');
     
     await client.query('BEGIN');
     const id = uuidv4();
+    const timestamp = new Date().toISOString();
     
-    console.log('Inserting new item:', { id, name, information, location }); // Debug log
+    console.log('Inserting new item:', { id, name, information, location, timestamp });
     
-    // Insert the item
+    // Insert the item with explicit timestamps
     await client.query(
-      'INSERT INTO items (id, name, information, location) VALUES ($1, $2, $3, $4)',
-      [id, name, information || '', location]
+      'INSERT INTO items (id, name, information, location, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $5)',
+      [id, name, information || '', location, timestamp]
     );
     
     // If quantity is specified, create serial numbers
@@ -210,25 +280,45 @@ app.post('/items', async (req, res) => {
     
     // Get the created item with its serial numbers
     const itemResult = await client.query('SELECT * FROM items WHERE id = $1', [id]);
-    const newItem = itemResult.rows[0];
     
-    const serialsResult = await client.query(`
-      SELECT ic.*, i.name as item_name, i.location 
-      FROM inventory_codes ic 
-      LEFT JOIN items i ON ic.item_id = i.id 
-      WHERE ic.item_id = $1
-    `, [id]);
+    if (!itemResult.rows[0]) {
+      await client.query('ROLLBACK');
+      throw new Error('Failed to create item');
+    }
+    
+    const newItem = itemResult.rows[0];
+    let serialNumbers = [];
+    
+    // If serial numbers were created, fetch them
+    if (quantity && quantity > 0) {
+      const serialsResult = await client.query(`
+        SELECT ic.*, i.name as item_name, i.location 
+        FROM inventory_codes ic 
+        LEFT JOIN items i ON ic.item_id = i.id 
+        WHERE ic.item_id = $1
+        ORDER BY ic.created_at ASC
+      `, [id]);
+      
+      serialNumbers = serialsResult.rows;
+      
+      if (serialNumbers.length !== quantity) {
+        await client.query('ROLLBACK');
+        throw new Error('Failed to create all serial numbers');
+      }
+    }
     
     await client.query('COMMIT');
+    
     console.log('Item and serial numbers created successfully:', {
       item: newItem,
-      serialNumbers: serialsResult.rows
+      serialNumbers: serialNumbers
     });
     
     res.status(201).json({
       ...newItem,
-      serialNumbers: serialsResult.rows,
-      success: true
+      serialNumbers,
+      success: true,
+      message: 'Item created successfully'
     });
   } catch (err) {
     console.error('Detailed error:', err);
