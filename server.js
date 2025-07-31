@@ -1,23 +1,32 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+const { Pool } = require('pg');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
 // Database setup
-const dbPath = path.join(__dirname, 'inventory.db');
-const db = new sqlite3.Database(dbPath);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || 'postgresql://inventory_db_0i38_user:NyyWex9bKcOGwXDyLZnZXFZbU0q1T0A5@dpg-d25kuoqli9vc73feo5lg-a/inventory_db_0i38',
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
+
+// Add error handler for the pool
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle client', err);
+  process.exit(-1);
+});
 
 // Test database connection
-db.get('SELECT 1', (err) => {
+pool.query('SELECT NOW()', (err, res) => {
   if (err) {
     console.error('Error connecting to the database:', err);
   } else {
-    console.log('Database connected successfully');
+    console.log('Database connected successfully at:', res.rows[0].now);
   }
 });
 
@@ -226,6 +235,68 @@ app.get('/items/:id', async (req, res) => {
 });
 
 // Note: POST, PUT, and DELETE endpoints have been removed
+// Create new item
+app.post('/items', async (req, res) => {
+  try {
+    const { name, information, location } = req.body;
+
+    if (!name || !location) {
+      return res.status(400).json({ error: 'Name and location are required.' });
+    }
+
+    const id = uuidv4();
+    await runQueryInsert(
+      'INSERT INTO items (id, name, information, location) VALUES ($1, $2, $3, $4)',
+      [id, name, information || '', location]
+    );
+
+    res.status(201).json({
+      id,
+      name,
+      information,
+      location,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('Error creating item:', err);
+    res.status(500).json({ error: 'Failed to create item.' });
+  }
+});
+
+// Update item
+app.put('/items/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, information, location } = req.body;
+
+    const item = await runQuerySingle('SELECT * FROM items WHERE id = $1', [id]);
+    if (!item) return res.status(404).json({ error: 'Item not found' });
+
+    await runQueryInsert(
+      'UPDATE items SET name = $1, information = $2, location = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4',
+      [name || item.name, information || item.information, location || item.location, id]
+    );
+
+    res.json({ id, name, information, location, updated_at: new Date().toISOString() });
+  } catch (err) {
+    console.error('Error updating item:', err);
+    res.status(500).json({ error: 'Failed to update item.' });
+  }
+});
+
+// Delete item
+app.delete('/items/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await runQueryInsert('DELETE FROM items WHERE id = $1', [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting item:', err);
+    res.status(500).json({ error: 'Failed to delete item.' });
+  }
+});
+
 
 // --- SERIAL NUMBERS CRUD ---
 
@@ -267,6 +338,67 @@ app.get('/serial-numbers/:id', async (req, res) => {
 });
 
 // Note: POST, PUT, and DELETE endpoints for serial numbers have been removed
+
+// Create serial number
+app.post('/serial-numbers', async (req, res) => {
+  try {
+    const { itemId, serialNumber, specs, status, dateAdded } = req.body;
+
+    if (!itemId) return res.status(400).json({ error: 'itemId is required.' });
+
+    const id = uuidv4();
+    await runQueryInsert(
+      'INSERT INTO inventory_codes (id, item_id, kode_inventaris, spesifikasi, status, date_added) VALUES ($1, $2, $3, $4, $5, $6)',
+      [id, itemId, serialNumber || '', specs || '', status || 'good', dateAdded ? new Date(dateAdded) : new Date()]
+    );
+
+    res.status(201).json({
+      id,
+      itemId,
+      serialNumber,
+      specs,
+      status,
+      dateAdded: dateAdded || new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('Error creating serial number:', err);
+    res.status(500).json({ error: 'Failed to create serial number.' });
+  }
+});
+
+// Update serial number
+app.put('/serial-numbers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { serialNumber, specs, status } = req.body;
+
+    const existing = await runQuerySingle('SELECT * FROM inventory_codes WHERE id = $1', [id]);
+    if (!existing) return res.status(404).json({ error: 'Serial number not found.' });
+
+    await runQueryInsert(
+      'UPDATE inventory_codes SET kode_inventaris = $1, spesifikasi = $2, status = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4',
+      [serialNumber ?? existing.kode_inventaris, specs ?? existing.spesifikasi, status ?? existing.status, id]
+    );
+
+    res.json({ id, updated: true });
+  } catch (err) {
+    console.error('Error updating serial number:', err);
+    res.status(500).json({ error: 'Failed to update serial number.' });
+  }
+});
+
+// Delete serial number
+app.delete('/serial-numbers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await runQueryInsert('DELETE FROM inventory_codes WHERE id = $1', [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting serial number:', err);
+    res.status(500).json({ error: 'Failed to delete serial number.' });
+  }
+});
+
 
 // Get items with their serial numbers count
 app.get('/items-with-counts', async (req, res) => {
