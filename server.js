@@ -130,7 +130,13 @@ const runQueryInsert = async (sql, params = []) => {
   const client = await pool.connect();
   try {
     const result = await client.query(sql, params);
-    return { changes: result.rowCount };
+    if (!result) {
+      throw new Error('Query failed to execute');
+    }
+    return { changes: result.rowCount, success: true };
+  } catch (error) {
+    console.error('Database query error:', error);
+    throw error;
   } finally {
     client.release();
   }
@@ -171,18 +177,27 @@ app.post('/items', async (req, res) => {
     return res.status(400).json({ error: 'Name and location are required' });
   }
 
+  const client = await pool.connect();
   try {
+    await client.query('BEGIN');
     const id = uuidv4();
-    const result = await runQueryInsert(
+    
+    await client.query(
       'INSERT INTO items (id, name, information, location) VALUES ($1, $2, $3, $4)',
       [id, name, information, location]
     );
     
-    const newItem = await runQuerySingle('SELECT * FROM items WHERE id = $1', [id]);
-    res.status(201).json(newItem);
+    const result = await client.query('SELECT * FROM items WHERE id = $1', [id]);
+    const newItem = result.rows[0];
+    
+    await client.query('COMMIT');
+    res.status(201).json({ ...newItem, success: true });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Error creating item:', err);
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -194,41 +209,63 @@ app.put('/items/:id', async (req, res) => {
     return res.status(400).json({ error: 'Name and location are required' });
   }
 
+  const client = await pool.connect();
   try {
-    const result = await runQueryInsert(
+    await client.query('BEGIN');
+    
+    // First check if the item exists
+    const itemExists = await client.query('SELECT id FROM items WHERE id = $1', [req.params.id]);
+    if (itemExists.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    await client.query(
       'UPDATE items SET name = $1, information = $2, location = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4',
       [name, information, location, req.params.id]
     );
     
-    if (result.changes === 0) {
-      return res.status(404).json({ error: 'Item not found' });
-    }
+    const result = await client.query('SELECT * FROM items WHERE id = $1', [req.params.id]);
+    const updatedItem = result.rows[0];
     
-    const updatedItem = await runQuerySingle('SELECT * FROM items WHERE id = $1', [req.params.id]);
-    res.json(updatedItem);
+    await client.query('COMMIT');
+    res.json({ ...updatedItem, success: true });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Error updating item:', err);
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
 // Delete item
 app.delete('/items/:id', async (req, res) => {
+  const client = await pool.connect();
   try {
-    // First delete related inventory codes
-    await runQueryInsert('DELETE FROM inventory_codes WHERE item_id = $1', [req.params.id]);
+    await client.query('BEGIN');
     
-    // Then delete the item
-    const result = await runQueryInsert('DELETE FROM items WHERE id = $1', [req.params.id]);
-    
-    if (result.changes === 0) {
+    // First check if the item exists
+    const itemExists = await client.query('SELECT id FROM items WHERE id = $1', [req.params.id]);
+    if (itemExists.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Item not found' });
     }
+
+    // Delete related inventory codes
+    await client.query('DELETE FROM inventory_codes WHERE item_id = $1', [req.params.id]);
     
-    res.json({ message: 'Item deleted successfully' });
+    // Then delete the item
+    const result = await client.query('DELETE FROM items WHERE id = $1', [req.params.id]);
+    
+    await client.query('COMMIT');
+    res.json({ message: 'Item deleted successfully', success: true });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Error deleting item:', err);
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
