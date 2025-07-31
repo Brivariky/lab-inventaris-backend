@@ -277,7 +277,7 @@ app.post('/items', async (req, res) => {
     
     // Insert the item with explicit timestamps
     await client.query(
-      'INSERT INTO items (id, name, information, location, created_at, updated_at) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
+      'INSERT INTO items (id, name, information, location) VALUES ($1, $2, $3, $4)',
       [id, name, information || '', location]
     );
     
@@ -287,7 +287,7 @@ app.post('/items', async (req, res) => {
       for (let i = 0; i < quantity; i++) {
         const serialId = uuidv4();
         await client.query(
-          'INSERT INTO inventory_codes (id, item_id, kode_inventaris, spesifikasi, status, date_added) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)',
+          'INSERT INTO inventory_codes (id, item_id, kode_inventaris, spesifikasi, status) VALUES ($1, $2, $3, $4, $5)',
           [serialId, id, '', '', 'good']
         );
       }
