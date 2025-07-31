@@ -171,33 +171,87 @@ app.get('/items/:id', async (req, res) => {
 
 // Add new item
 app.post('/items', async (req, res) => {
-  const { name, information, location } = req.body;
+  console.log('Received request body:', req.body); // Debug log
+  
+  const { name, information, location, quantity } = req.body;
   
   if (!name || !location) {
+    console.log('Validation failed:', { name, location }); // Debug log
     return res.status(400).json({ error: 'Name and location are required' });
   }
 
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
+    console.log('Database connected'); // Debug log
+    
     await client.query('BEGIN');
     const id = uuidv4();
     
+    console.log('Inserting new item:', { id, name, information, location }); // Debug log
+    
+    // Insert the item
     await client.query(
       'INSERT INTO items (id, name, information, location) VALUES ($1, $2, $3, $4)',
-      [id, name, information, location]
+      [id, name, information || '', location]
     );
     
-    const result = await client.query('SELECT * FROM items WHERE id = $1', [id]);
-    const newItem = result.rows[0];
+    // If quantity is specified, create serial numbers
+    if (quantity && quantity > 0) {
+      console.log(`Creating ${quantity} serial numbers for item ${id}`);
+      for (let i = 0; i < quantity; i++) {
+        const serialId = uuidv4();
+        await client.query(
+          'INSERT INTO inventory_codes (id, item_id, kode_inventaris, spesifikasi, status, date_added) VALUES ($1, $2, $3, $4, $5, $6)',
+          [serialId, id, '', '', 'good', new Date().toISOString()]
+        );
+      }
+    }
+    
+    // Get the created item with its serial numbers
+    const itemResult = await client.query('SELECT * FROM items WHERE id = $1', [id]);
+    const newItem = itemResult.rows[0];
+    
+    const serialsResult = await client.query(`
+      SELECT ic.*, i.name as item_name, i.location 
+      FROM inventory_codes ic 
+      LEFT JOIN items i ON ic.item_id = i.id 
+      WHERE ic.item_id = $1
+    `, [id]);
     
     await client.query('COMMIT');
-    res.status(201).json({ ...newItem, success: true });
+    console.log('Item and serial numbers created successfully:', {
+      item: newItem,
+      serialNumbers: serialsResult.rows
+    });
+    
+    res.status(201).json({
+      ...newItem,
+      serialNumbers: serialsResult.rows,
+      success: true
+    });
   } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('Error creating item:', err);
-    res.status(500).json({ error: err.message });
+    console.error('Detailed error:', err);
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        console.error('Error during rollback:', rollbackErr);
+      }
+    }
+    res.status(500).json({ 
+      error: err.message,
+      detail: err.detail,
+      hint: err.hint
+    });
   } finally {
-    client.release();
+    if (client) {
+      try {
+        await client.release();
+      } catch (releaseErr) {
+        console.error('Error releasing client:', releaseErr);
+      }
+    }
   }
 });
 
@@ -310,36 +364,97 @@ app.get('/serial-numbers/:id', async (req, res) => {
 
 // Add serial number
 app.post('/serial-numbers', async (req, res) => {
-  const { itemId, serialNumber, specs, status } = req.body;
+  console.log('Received serial number request:', req.body);
+  
+  const { itemId, serialNumber, specs, status, dateAdded } = req.body;
   
   if (!itemId) {
-    return res.status(400).json({ error: 'Item ID is required' });
+    console.log('Missing itemId in request');
+    return res.status(400).json({ 
+      error: 'Item ID is required',
+      receivedData: req.body
+    });
   }
 
+  let client;
   try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+
     // Check if item exists
-    const item = await runQuerySingle('SELECT * FROM items WHERE id = $1', [itemId]);
-    if (!item) {
-      return res.status(404).json({ error: 'Item not found' });
+    const itemResult = await client.query('SELECT * FROM items WHERE id = $1', [itemId]);
+    if (itemResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      console.log('Item not found:', itemId);
+      return res.status(404).json({ error: 'Item not found', itemId });
     }
 
     const id = uuidv4();
-    const result = await runQueryInsert(
-      'INSERT INTO inventory_codes (id, item_id, kode_inventaris, spesifikasi, status) VALUES ($1, $2, $3, $4, $5)',
-      [id, itemId, serialNumber || '', specs || '', status || 'good']
+    console.log('Creating serial number:', { id, itemId, serialNumber, specs, status, dateAdded });
+
+    // Insert new serial number with proper date handling
+    await client.query(
+      'INSERT INTO inventory_codes (id, item_id, kode_inventaris, spesifikasi, status, date_added) VALUES ($1, $2, $3, $4, $5, $6)',
+      [
+        id,
+        itemId,
+        serialNumber || '',
+        specs || '',
+        status || 'good',
+        dateAdded ? new Date(dateAdded).toISOString() : new Date().toISOString()
+      ]
     );
     
-    const newSerialNumber = await runQuerySingle(`
-      SELECT ic.*, i.name as item_name, i.location 
+    // Get the newly created serial number with item details
+    const result = await client.query(`
+      SELECT 
+        ic.*,
+        i.name as item_name,
+        i.location,
+        i.information as item_information
       FROM inventory_codes ic 
       LEFT JOIN items i ON ic.item_id = i.id 
       WHERE ic.id = $1
     `, [id]);
     
-    res.status(201).json(newSerialNumber);
+    if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
+      throw new Error('Failed to retrieve created serial number');
+    }
+
+    const newSerialNumber = result.rows[0];
+    
+    await client.query('COMMIT');
+    console.log('Serial number created successfully:', newSerialNumber);
+    
+    res.status(201).json({
+      ...newSerialNumber,
+      success: true,
+      message: 'Serial number created successfully'
+    });
   } catch (err) {
-    console.error('Error creating serial number:', err);
-    res.status(500).json({ error: err.message });
+    console.error('Detailed serial number error:', err);
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        console.error('Error during rollback:', rollbackErr);
+      }
+    }
+    res.status(500).json({ 
+      error: err.message,
+      detail: err.detail,
+      hint: err.hint,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
+  } finally {
+    if (client) {
+      try {
+        await client.release();
+      } catch (releaseErr) {
+        console.error('Error releasing client:', releaseErr);
+      }
+    }
   }
 });
 
