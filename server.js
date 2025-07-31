@@ -1,104 +1,100 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+const { Pool } = require('pg');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
 // Database setup
-const dbPath = path.join(__dirname, 'inventory.db');
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('Error opening database:', err.message);
-  } else {
-    console.log('Connected to SQLite database');
-    // Initialize database if tables don't exist
-    initializeDatabase();
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || 'postgresql://inventory_db_0i38_user:NyyWex9bKcOGwXDyLZnZXFZbU0q1T0A5@dpg-d25kuoqli9vc73feo5lg-a/inventory_db_0i38',
+  ssl: {
+    rejectUnauthorized: false
   }
 });
 
-// Function to initialize database
-function initializeDatabase() {
-  console.log('Initializing database...');
-  
-  // Create items table
-  db.run(`
-    CREATE TABLE IF NOT EXISTS items (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      information TEXT,
-      location TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `, (err) => {
-    if (err) {
-      console.error('Error creating items table:', err);
-    } else {
-      console.log('Items table created successfully');
-    }
-  });
+console.log('Initializing database...');
 
-  // Create inventory_codes table
-  db.run(`
-    CREATE TABLE IF NOT EXISTS inventory_codes (
-      id TEXT PRIMARY KEY,
-      item_id TEXT NOT NULL,
-      kode_inventaris TEXT,
-      spesifikasi TEXT,
-      status TEXT DEFAULT 'good',
-      date_added DATETIME DEFAULT CURRENT_TIMESTAMP,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (item_id) REFERENCES items (id) ON DELETE CASCADE
-    )
-  `, (err) => {
-    if (err) {
-      console.error('Error creating inventory_codes table:', err);
-    } else {
-      console.log('Inventory codes table created successfully');
-    }
-  });
+// Initialize database asynchronously
+async function initDatabase() {
+  const client = await pool.connect();
+  try {
+    // Create items table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS items (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        information TEXT,
+        location TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('Items table created successfully');
 
-  // Import sample data if tables are empty
-  db.get('SELECT COUNT(*) as count FROM items', (err, row) => {
-    if (err) {
-      console.error('Error checking items count:', err);
-    } else if (row.count === 0) {
-      console.log('Importing sample data...');
-      importSampleData();
+    // Create inventory_codes table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS inventory_codes (
+        id TEXT PRIMARY KEY,
+        item_id TEXT NOT NULL,
+        kode_inventaris TEXT,
+        spesifikasi TEXT,
+        status TEXT DEFAULT 'good',
+        date_added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (item_id) REFERENCES items (id) ON DELETE CASCADE
+      )
+    `);
+    console.log('Inventory codes table created successfully');
+
+    // Check if data exists and import if empty
+    const result = await client.query('SELECT COUNT(*) as count FROM items');
+    if (result.rows[0].count === '0') {
+      console.log('Database is empty, importing sample data...');
+      await importSampleData();
+    } else {
+      console.log(`Database has ${result.rows[0].count} items, skipping import`);
     }
-  });
-}
+  } catch (err) {
+    console.error('Error initializing database:', err);
+  } finally {
+    client.release();
+  }
+};
 
 // Function to import sample data
-function importSampleData() {
+async function importSampleData() {
+  const client = await pool.connect();
   try {
     const sampleData = require('./data.json');
     
     // Insert items
-    const insertItem = db.prepare('INSERT OR IGNORE INTO items (id, name, information, location) VALUES (?, ?, ?, ?)');
-    sampleData.items.forEach(item => {
-      insertItem.run(item.id, item.name, item.information, item.location);
-    });
-    insertItem.finalize();
+    for (const item of sampleData.items) {
+      await client.query(
+        'INSERT INTO items (id, name, information, location) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING',
+        [item.id, item.name, item.information, item.location]
+      );
+    }
     console.log(`Imported ${sampleData.items.length} items`);
 
     // Insert serial numbers
-    const insertSerial = db.prepare('INSERT OR IGNORE INTO inventory_codes (id, item_id, kode_inventaris, spesifikasi, status, date_added) VALUES (?, ?, ?, ?, ?, ?)');
-    sampleData.serialNumbers.forEach(serial => {
+    for (const serial of sampleData.serialNumbers) {
       const dateAdded = serial.dateAdded ? new Date(serial.dateAdded).toISOString() : new Date().toISOString();
-      insertSerial.run(serial.id, serial.itemId, serial.serialNumber, serial.specs, serial.status, dateAdded);
-    });
-    insertSerial.finalize();
+      await client.query(
+        'INSERT INTO inventory_codes (id, item_id, kode_inventaris, spesifikasi, status, date_added) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING',
+        [serial.id, serial.itemId, serial.serialNumber, serial.specs, serial.status, dateAdded]
+      );
+    }
     console.log(`Imported ${sampleData.serialNumbers.length} serial numbers`);
     
     console.log('Sample data import completed!');
   } catch (err) {
     console.error('Error importing sample data:', err);
+  } finally {
+    client.release();
   }
 }
 
@@ -107,40 +103,34 @@ app.use(cors());
 app.use(express.json());
 
 // Helper function to run database queries
-const runQuery = (sql, params = []) => {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(rows);
-      }
-    });
-  });
+const runQuery = async (sql, params = []) => {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(sql, params);
+    return result.rows;
+  } finally {
+    client.release();
+  }
 };
 
-const runQuerySingle = (sql, params = []) => {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(row);
-      }
-    });
-  });
+const runQuerySingle = async (sql, params = []) => {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(sql, params);
+    return result.rows[0];
+  } finally {
+    client.release();
+  }
 };
 
-const runQueryInsert = (sql, params = []) => {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function(err) {
-      if (err) {
-        reject(err);
-      } else {
-        resolve({ id: this.lastID, changes: this.changes });
-      }
-    });
-  });
+const runQueryInsert = async (sql, params = []) => {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(sql, params);
+    return { changes: result.rowCount };
+  } finally {
+    client.release();
+  }
 };
 
 // --- INVENTORY ITEMS CRUD ---
@@ -384,21 +374,43 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Test database endpoint
+app.get('/test-db', async (req, res) => {
+  try {
+    const itemsCount = await runQuerySingle('SELECT COUNT(*) as count FROM items');
+    const serialsCount = await runQuerySingle('SELECT COUNT(*) as count FROM inventory_codes');
+    
+    res.json({
+      status: 'Database OK',
+      itemsCount: itemsCount.count,
+      serialsCount: serialsCount.count,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({
+      status: 'Database Error',
+      error: err.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Start server
-app.listen(port, () => {
-  console.log(`Server running on http://localhost:${port}`);
-  console.log(`Health check: http://localhost:${port}/health`);
+initDatabase().then(() => {
+  app.listen(port, () => {
+    console.log(`Server running on http://localhost:${port}`);
+    console.log(`Health check: http://localhost:${port}/health`);
+  });
 });
 
 // Graceful shutdown
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('Shutting down server...');
-  db.close((err) => {
-    if (err) {
-      console.error('Error closing database:', err.message);
-    } else {
-      console.log('Database connection closed.');
-    }
-    process.exit(0);
-  });
+  try {
+    await pool.end();
+    console.log('Database connection closed.');
+  } catch (err) {
+    console.error('Error closing database:', err.message);
+  }
+  process.exit(0);
 });
