@@ -1,32 +1,23 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { Pool } = require('pg');
+const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
 // Database setup
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://inventory_db_0i38_user:NyyWex9bKcOGwXDyLZnZXFZbU0q1T0A5@dpg-d25kuoqli9vc73feo5lg-a/inventory_db_0i38',
-  ssl: {
-    rejectUnauthorized: false
-  }
-});
-
-// Add error handler for the pool
-pool.on('error', (err) => {
-  console.error('Unexpected error on idle client', err);
-  process.exit(-1);
-});
+const dbPath = path.join(__dirname, 'inventory.db');
+const db = new sqlite3.Database(dbPath);
 
 // Test database connection
-pool.query('SELECT NOW()', (err, res) => {
+db.get('SELECT 1', (err) => {
   if (err) {
     console.error('Error connecting to the database:', err);
   } else {
-    console.log('Database connected successfully at:', res.rows[0].now);
+    console.log('Database connected successfully');
   }
 });
 
