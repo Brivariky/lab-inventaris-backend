@@ -100,7 +100,7 @@ async function importSampleData() {
 
 // Middleware
 app.use(cors({
-  origin: ['https://silabti.vercel.app/'],
+  origin: 'https://silabti.vercel.app',
   credentials: true
 }));
 app.use(express.json());
