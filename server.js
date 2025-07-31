@@ -210,15 +210,25 @@ const runQueryInsert = async (sql, params = []) => {
 // --- INVENTORY ITEMS CRUD ---
 
 // List all items
+// List all items with serial count
 app.get('/items', async (req, res) => {
   try {
-    const items = await runQuery('SELECT * FROM items ORDER BY created_at DESC');
+    const items = await runQuery(`
+      SELECT 
+        i.*, 
+        COUNT(ic.id) AS jumlah
+      FROM items i
+      LEFT JOIN inventory_codes ic ON ic.item_id = i.id
+      GROUP BY i.id
+      ORDER BY i.created_at DESC
+    `);
     res.json(items);
   } catch (err) {
-    console.error('Error fetching items:', err);
+    console.error('Error fetching items with jumlah:', err);
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // Get single item
 app.get('/items/:id', async (req, res) => {
