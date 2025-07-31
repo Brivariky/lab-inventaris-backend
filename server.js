@@ -497,6 +497,24 @@ app.get('/serial-numbers/:id', async (req, res) => {
   }
 });
 
+// Get serial numbers by item ID
+app.get('/items/:itemId/serial-numbers', async (req, res) => {
+  try {
+    const serialNumbers = await runQuery(`
+      SELECT *
+      FROM inventory_codes
+      WHERE item_id = $1
+      ORDER BY date_added DESC
+    `, [req.params.itemId]);
+
+    res.json(serialNumbers);
+  } catch (err) {
+    console.error('Error fetching serial numbers by item ID:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 // Add serial number
 app.post('/serial-numbers', async (req, res) => {
   console.log('Received serial number request:', req.body);
