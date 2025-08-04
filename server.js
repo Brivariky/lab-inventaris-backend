@@ -115,7 +115,7 @@ async function importSampleData() {
 
 // Middleware
 app.use(cors({
-  origin: 'https://silabti.vercel.app',
+  origin: 'https://labinti.vercel.app',
   credentials: true
 }));
 
