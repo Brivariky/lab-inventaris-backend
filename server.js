@@ -65,7 +65,7 @@ async function initDatabase() {
     `);
     console.log('Inventory codes table created successfully');
 
-    // Check if data exists and import if empty
+    // Check data 
     const result = await client.query('SELECT COUNT(*) as count FROM items');
     if (result.rows[0].count === '0') {
       console.log('Database is empty, importing sample data...');
@@ -115,7 +115,7 @@ async function importSampleData() {
 
 // Middleware
 app.use(cors({
-  origin: 'https://silabti.vercel.app',
+  origin: 'https://labinti.vercel.app',
   credentials: true
 }));
 
