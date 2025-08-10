@@ -9,7 +9,7 @@ const port = process.env.PORT || 3000;
 
 // Database setup
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://inventory_db_0i38_user:NyyWex9bKcOGwXDyLZnZXFZbU0q1T0A5@dpg-d25kuoqli9vc73feo5lg-a/inventory_db_0i38',
+  connectionString: process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_lFi4TDanq5wr@ep-broad-king-a14ndxw2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require',
   ssl: {
     rejectUnauthorized: false
   }
