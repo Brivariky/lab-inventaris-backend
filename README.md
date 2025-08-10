@@ -4,7 +4,7 @@ A Node.js backend for managing laboratory inventory with SQLite database.
 
 ## Features
 
-- ✅ SQLite database (no external database setup required)
+- ✅ postgreSQL database (no external database setup required)
 - ✅ CRUD operations for inventory items
 - ✅ CRUD operations for serial numbers
 - ✅ Automatic ID generation
