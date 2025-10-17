@@ -115,7 +115,7 @@ async function importSampleData() {
 
 // Middleware
 app.use(cors({
-  origin: 'https://labinti.vercel.app',
+  origin: 'https://lab-inventaris-fe-test.vercel.app/',
   credentials: true
 }));
 
