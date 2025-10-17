@@ -115,7 +115,7 @@ async function importSampleData() {
 
 // Middleware
 app.use(cors({
-  origin: ['https://labinti.vercel.app', 'https://lab-inventaris-fe-test.vercel.app'],
+  origin: 'https://lab-inventaris-fe-test.vercel.app/',
   credentials: true
 }));
 
@@ -336,15 +336,50 @@ app.post('/items', async (req, res) => {
     }
     
     await client.query('COMMIT');
-    
+
+    // Get up-to-date counts for this item
+    const countsResult = await client.query(
+      `SELECT 
+         COUNT(id) AS jumlah,
+         COUNT(CASE WHEN status = 'good' THEN 1 END) AS baik,
+         COUNT(CASE WHEN status = 'broken' THEN 1 END) AS rusak
+       FROM inventory_codes
+       WHERE item_id = $1`,
+      [id]
+    );
+
+    const counts = countsResult.rows[0] || { jumlah: 0, baik: 0, rusak: 0 };
+
+    // Normalize serial numbers to frontend shape
+    const mappedSerials = serialNumbers.map((row) => ({
+      id: row.id,
+      itemId: row.item_id || id,
+      serialNumber: row.kode_inventaris || '',
+      specs: row.spesifikasi || '',
+      status: row.status || 'good',
+      dateAdded: row.date_added || row.created_at || new Date().toISOString(),
+    }));
+
+    const mappedItem = {
+      id: newItem.id,
+      name: newItem.name,
+      information: newItem.information,
+      location: newItem.location,
+      dateAdded: newItem.created_at,
+      lastUpdated: newItem.updated_at,
+      jumlah: Number(counts.jumlah) || 0,
+      baik: Number(counts.baik) || 0,
+      rusak: Number(counts.rusak) || 0,
+    };
+
     console.log('Item and serial numbers created successfully:', {
-      item: newItem,
-      serialNumbers: serialNumbers
+      item: mappedItem,
+      serialNumbers: mappedSerials
     });
-    
+
     res.status(201).json({
-      ...newItem,
-      serialNumbers,
+      ...mappedItem,
+      serialNumbers: mappedSerials,
       success: true,
       message: 'Item created successfully'
     });
