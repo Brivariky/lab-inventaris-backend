@@ -340,19 +340,10 @@ app.post('/items', async (req, res) => {
       [id, name, information || '', location]
     );
     
-    // If quantity is specified, create serial numbers
-    if (quantity && quantity > 0) {
-      console.log(`Creating ${quantity} serial numbers for item ${id}`);
-      for (let i = 0; i < quantity; i++) {
-        const serialId = uuidv4();
-        await client.query(
-          'INSERT INTO inventory_codes (id, item_id, kode_inventaris, spesifikasi, status) VALUES ($1, $2, $3, $4, $5)',
-          [serialId, id, '', '', 'good']
-        );
-      }
-    }
+    // Don't auto-create serial numbers - let user add them manually
+    // This gives users full control over when codes are created
     
-    // Get the created item with its serial numbers
+    // Get the created item
     const itemResult = await client.query('SELECT * FROM items WHERE id = $1', [id]);
     
     if (!itemResult.rows[0]) {
@@ -361,29 +352,13 @@ app.post('/items', async (req, res) => {
     }
     
     const newItem = itemResult.rows[0];
-    let serialNumbers = [];
     
-    // If serial numbers were created, fetch them
-    if (quantity && quantity > 0) {
-      const serialsResult = await client.query(`
-        SELECT ic.*, i.name as item_name, i.location 
-        FROM inventory_codes ic 
-        LEFT JOIN items i ON ic.item_id = i.id 
-        WHERE ic.item_id = $1
-        ORDER BY ic.created_at ASC
-      `, [id]);
-      
-      serialNumbers = serialsResult.rows;
-      
-      if (serialNumbers.length !== quantity) {
-        await client.query('ROLLBACK');
-        throw new Error('Failed to create all serial numbers');
-      }
-    }
+    // No serial numbers created - user will add them manually
+    const serialNumbers = [];
     
     await client.query('COMMIT');
     
-    console.log('Item and serial numbers created successfully:', {
+    console.log('Item created successfully:', {
       item: newItem,
       serialNumbers: serialNumbers
     });
