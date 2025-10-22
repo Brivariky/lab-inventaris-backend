@@ -65,6 +65,21 @@ async function initDatabase() {
     `);
     console.log('Inventory codes table created successfully');
 
+    // Create rooms table for location/room management
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS rooms (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT,
+        hidden BOOLEAN DEFAULT FALSE,
+        replaces_default TEXT,
+        icon TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('Rooms table created successfully');
+
     // Check data 
     const result = await client.query('SELECT COUNT(*) as count FROM items');
     if (result.rows[0].count === '0') {
@@ -736,6 +751,95 @@ app.get('/test-db', async (req, res) => {
       error: err.message,
       timestamp: new Date().toISOString()
     });
+  }
+});
+
+// --- ROOMS MANAGEMENT ENDPOINTS ---
+
+// Get all rooms
+app.get('/rooms', async (req, res) => {
+  try {
+    const rooms = await runQuery('SELECT * FROM rooms ORDER BY created_at DESC');
+    res.json(rooms);
+  } catch (err) {
+    console.error('Error fetching rooms:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Create a new room
+app.post('/rooms', async (req, res) => {
+  const { name, description, hidden, replacesDefault, icon } = req.body;
+
+  if (!name) {
+    return res.status(400).json({ error: 'Room name is required' });
+  }
+
+  try {
+    const id = uuidv4();
+    await runQueryInsert(
+      'INSERT INTO rooms (id, name, description, hidden, replaces_default, icon) VALUES ($1, $2, $3, $4, $5, $6)',
+      [id, name, description || '', hidden || false, replacesDefault || null, icon || '']
+    );
+
+    const newRoom = await runQuerySingle('SELECT * FROM rooms WHERE id = $1', [id]);
+    res.status(201).json(newRoom);
+  } catch (err) {
+    console.error('Error creating room:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update a room
+app.put('/rooms/:id', async (req, res) => {
+  const { name, description, hidden, replacesDefault, icon } = req.body;
+
+  try {
+    await runQueryInsert(
+      'UPDATE rooms SET name = $1, description = $2, hidden = $3, replaces_default = $4, icon = $5, updated_at = CURRENT_TIMESTAMP WHERE id = $6',
+      [name || '', description || '', hidden || false, replacesDefault || null, icon || '', req.params.id]
+    );
+
+    const updatedRoom = await runQuerySingle('SELECT * FROM rooms WHERE id = $1', [req.params.id]);
+    if (!updatedRoom) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+    res.json(updatedRoom);
+  } catch (err) {
+    console.error('Error updating room:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a room
+app.delete('/rooms/:id', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Get the room first
+    const roomResult = await client.query('SELECT * FROM rooms WHERE id = $1', [req.params.id]);
+    if (roomResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Room not found' });
+    }
+
+    const room = roomResult.rows[0];
+
+    // Delete all items in this room
+    await client.query('DELETE FROM items WHERE location = $1', [room.name]);
+
+    // Delete the room
+    await client.query('DELETE FROM rooms WHERE id = $1', [req.params.id]);
+
+    await client.query('COMMIT');
+    res.json({ message: 'Room deleted successfully', deletedRoom: room });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error deleting room:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
