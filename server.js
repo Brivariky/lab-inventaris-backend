@@ -80,6 +80,9 @@ async function initDatabase() {
     `);
     console.log('Rooms table created successfully');
 
+    // Initialize default rooms if none exist
+    await initializeDefaultRooms()
+
     // Check data 
     const result = await client.query('SELECT COUNT(*) as count FROM items');
     if (result.rows[0].count === '0') {
@@ -94,6 +97,34 @@ async function initDatabase() {
     client.release();
   }
 };
+
+// Function to initialize default rooms
+async function initializeDefaultRooms() {
+  const client = await pool.connect();
+  try {
+    const defaultRooms = [
+      { name: "Ruang Laboran", icon: "Building" },
+      { name: "Lab FKI", icon: "Cpu" },
+      { name: "Lab Jarkom", icon: "Network" },
+      { name: "Lab SI", icon: "Computer" },
+      { name: "Lab SIC", icon: "Joystick" },
+      { name: "Lab RPL", icon: "Braces" }
+    ];
+
+    for (const room of defaultRooms) {
+      await client.query(
+        `INSERT INTO rooms (id, name, description, icon) VALUES ($1, $2, $3, $4) 
+         ON CONFLICT (name) DO NOTHING`,
+        [uuidv4(), room.name, '', room.icon]
+      );
+    }
+    console.log('Default rooms initialized successfully');
+  } catch (err) {
+    console.error('Error initializing default rooms:', err);
+  } finally {
+    client.release();
+  }
+}
 
 // Function to import sample data
 async function importSampleData() {
@@ -763,6 +794,18 @@ app.get('/rooms', async (req, res) => {
     res.json(rooms);
   } catch (err) {
     console.error('Error fetching rooms:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Initialize default rooms
+app.post('/rooms/init-defaults', async (req, res) => {
+  try {
+    await initializeDefaultRooms();
+    const rooms = await runQuery('SELECT * FROM rooms ORDER BY created_at DESC');
+    res.json({ message: 'Default rooms initialized', rooms });
+  } catch (err) {
+    console.error('Error initializing default rooms:', err);
     res.status(500).json({ error: err.message });
   }
 });
